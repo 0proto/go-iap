@@ -2,9 +2,6 @@ package appstore
 
 import (
 	"errors"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"reflect"
 	"testing"
@@ -42,6 +39,13 @@ func TestHandleError(t *testing.T) {
 		t.Errorf("got %v\nwant %v", actual, expected)
 	}
 
+	// status 21004
+	expected = errors.New("The shared secret you provided does not match the shared secret on file for your account.")
+	actual = HandleError(21004)
+	if !reflect.DeepEqual(actual, expected) {
+		t.Errorf("got %v\nwant %v", actual, expected)
+	}
+
 	// status 21005
 	expected = errors.New("The receipt server is not currently available.")
 	actual = HandleError(21005)
@@ -63,8 +67,22 @@ func TestHandleError(t *testing.T) {
 		t.Errorf("got %v\nwant %v", actual, expected)
 	}
 
-	// status unkown
-	expected = errors.New("An unknown error ocurred")
+	// status 21010
+	expected = errors.New("This receipt could not be authorized. Treat this the same as if a purchase was never made.")
+	actual = HandleError(21010)
+	if !reflect.DeepEqual(actual, expected) {
+		t.Errorf("got %v\nwant %v", actual, expected)
+	}
+
+	// status 21100 - 21199
+	expected = errors.New("Internal data access error.")
+	actual = HandleError(21155)
+	if !reflect.DeepEqual(actual, expected) {
+		t.Errorf("got %v\nwant %v", actual, expected)
+	}
+
+	// status unknown
+	expected = errors.New("An unknown error occurred")
 	actual = HandleError(100)
 	if !reflect.DeepEqual(actual, expected) {
 		t.Errorf("got %v\nwant %v", actual, expected)
@@ -133,58 +151,23 @@ func TestNewWithConfigTimeout(t *testing.T) {
 
 func TestVerify(t *testing.T) {
 	client := New()
+	client.TimeOut = time.Millisecond * 100
 
-	expected := IAPResponse{
+	req := IAPRequest{
+		ReceiptData: "dummy data",
+	}
+	result := &IAPResponse{}
+	err := client.Verify(req, result)
+	if err == nil {
+		t.Errorf("error should be occurred because of timeout")
+	}
+
+	client = New()
+	expected := &IAPResponse{
 		Status: 21002,
 	}
-	req := IAPRequest{
-		ReceiptData: "dummy data",
+	client.Verify(req, result)
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("got %v\nwant %v", result, expected)
 	}
-	actual, _ := client.Verify(req)
-	if !reflect.DeepEqual(actual, expected) {
-		t.Errorf("got %v\nwant %v", actual, expected)
-	}
-}
-
-func TestVerifyErrors(t *testing.T) {
-	server, client := testTools(199, "dummy response")
-	defer server.Close()
-
-	req := IAPRequest{
-		ReceiptData: "dummy data",
-	}
-
-	expected := errors.New("An error occurred in IAP - code:199")
-	_, actual := client.Verify(req)
-	if !reflect.DeepEqual(actual, expected) {
-		t.Errorf("got %v\nwant %v", actual, expected)
-	}
-}
-
-func TestVerifyTimeout(t *testing.T) {
-	// HTTP 100 is "continue" so it will time out
-	server, client := testTools(100, "dummy response")
-	defer server.Close()
-
-	req := IAPRequest{
-		ReceiptData: "dummy data",
-	}
-
-	expected := errors.New("")
-	_, actual := client.Verify(req)
-	if !reflect.DeepEqual(reflect.TypeOf(actual), reflect.TypeOf(expected)) {
-		t.Errorf("got %v\nwant %v", actual, expected)
-	}
-}
-
-func testTools(code int, body string) (*httptest.Server, *Client) {
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(code)
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, body)
-	}))
-
-	client := &Client{URL: server.URL, TimeOut: time.Second * 2}
-	return server, client
 }

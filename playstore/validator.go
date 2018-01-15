@@ -1,6 +1,7 @@
 package playstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha1"
@@ -10,7 +11,6 @@ import (
 	"net/http"
 	"time"
 
-	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	androidpublisher "google.golang.org/api/androidpublisher/v2"
@@ -31,6 +31,9 @@ func SetTimeout(t time.Duration) {
 type IABClient interface {
 	VerifySubscription(string, string, string) (*androidpublisher.SubscriptionPurchase, error)
 	VerifyProduct(string, string, string) (*androidpublisher.ProductPurchase, error)
+	CancelSubscription(string, string, string) error
+	RefundSubscription(string, string, string) error
+	RevokeSubscription(string, string, string) error
 }
 
 // The Client type implements VerifySubscription method

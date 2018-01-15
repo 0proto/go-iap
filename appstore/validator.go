@@ -1,19 +1,18 @@
 package appstore
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"net/http"
 	"os"
-	"strconv"
-	"strings"
 	"time"
-
-	"github.com/parnurzeal/gorequest"
 )
 
 const (
-	SandboxURL    string = "https://sandbox.itunes.apple.com/verifyReceipt"
+	// SandboxURL is the endpoint for sandbox environment.
+	SandboxURL string = "https://sandbox.itunes.apple.com/verifyReceipt"
+	// ProductionURL is the endpoint for production environment.
 	ProductionURL string = "https://buy.itunes.apple.com/verifyReceipt"
 )
 
@@ -25,7 +24,7 @@ type Config struct {
 
 // IAPClient is an interface to call validation API in App Store
 type IAPClient interface {
-	Verify(IAPRequest) (IAPResponse, error)
+	Verify(IAPRequest, interface{}) error
 }
 
 // Client implements IAPClient
@@ -51,6 +50,9 @@ func HandleError(status int) error {
 	case 21003:
 		message = "The receipt could not be authenticated."
 
+	case 21004:
+		message = "The shared secret you provided does not match the shared secret on file for your account."
+
 	case 21005:
 		message = "The receipt server is not currently available."
 
@@ -60,8 +62,15 @@ func HandleError(status int) error {
 	case 21008:
 		message = "This receipt is from the production environment, but it was sent to the test environment for verification. Send it to the production environment instead."
 
+	case 21010:
+		message = "This receipt could not be authorized. Treat this the same as if a purchase was never made."
+
 	default:
-		message = "An unknown error ocurred"
+		if status >= 21100 && status <= 21199 {
+			message = "Internal data access error."
+		} else {
+			message = "An unknown error occurred"
+		}
 	}
 
 	return errors.New(message)
@@ -97,22 +106,21 @@ func NewWithConfig(config Config) Client {
 }
 
 // Verify sends receipts and gets validation result
-func (c *Client) Verify(req IAPRequest) (IAPResponse, error) {
-	result := IAPResponse{}
-	res, body, errs := gorequest.New().
-		Post(c.URL).
-		Send(req).
-		Timeout(c.TimeOut).
-		End()
-
-	if errs != nil {
-		return result, fmt.Errorf("%v", errs)
-	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return result, errors.New("An error occurred in IAP - code:" + strconv.Itoa(res.StatusCode))
+func (c *Client) Verify(req IAPRequest, result interface{}) error {
+	client := http.Client{
+		Timeout: c.TimeOut,
 	}
 
-	err := json.NewDecoder(strings.NewReader(body)).Decode(&result)
+	b := new(bytes.Buffer)
+	json.NewEncoder(b).Encode(req)
 
-	return result, err
+	resp, err := client.Post(c.URL, "application/json; charset=utf-8", b)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	err = json.NewDecoder(resp.Body).Decode(result)
+
+	return err
 }
